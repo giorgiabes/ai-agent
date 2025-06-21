@@ -6,7 +6,7 @@ def get_files_info(working_directory, directory=None):
         # If directory is None, list working_directory itself
         directory = directory or "."
 
-        # Calculate absolute paths
+        # Get absolute paths
         working_abs = os.path.abspath(working_directory)
         target_abs = os.path.abspath(os.path.join(working_directory, directory))
 
