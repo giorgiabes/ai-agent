@@ -10,6 +10,9 @@ You are a helpful AI coding agent.
 When a user asks a question or makes a request, make a function call plan. You can perform the following operations:
 
 - List files and directories
+- Read file contents
+- Execute Python files with optional arguments
+- Write or overwrite files
 
 All paths you provide should be relative to the working directory. You do not need to specify the working directory in your function calls as it is automatically injected for security reasons.
 """
@@ -28,7 +31,60 @@ schema_get_files_info = types.FunctionDeclaration(
     ),
 )
 
-available_functions = types.Tool(function_declarations=[schema_get_files_info])
+schema_get_file_content = types.FunctionDeclaration(
+    name="get_file_content",
+    description="Reads the contents of a specified file in the working directory and returns it as a string. If the file exceeds 10,000 characters, the output is truncated to prevent large responses.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file whose contents should be read, relative to the working directory. Must point to a regular file.",
+            )
+        },
+    ),
+)
+
+schema_run_python_file = types.FunctionDeclaration(
+    name="run_python_file",
+    description="Executes a Python file located within the working directory and returns its output, including stdout, stderr, and exit code if applicable.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the Python file to execute, relative to the working directory. Must point to a '.py' file.",
+            )
+        },
+    ),
+)
+
+schema_write_file = types.FunctionDeclaration(
+    name="write_file",
+    description="Writes or overwrites the content of a file within the working directory. Creates the file and any necessary parent directories if they don't exist.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={
+            "file_path": types.Schema(
+                type=types.Type.STRING,
+                description="The path to the file to write to, relative to the working directory. If the file or its directories do not exist, they will be created.",
+            ),
+            "content": types.Schema(
+                type=types.Type.STRING,
+                description="The content to write into the file.",
+            ),
+        },
+    ),
+)
+
+available_functions = types.Tool(
+    function_declarations=[
+        schema_get_files_info,
+        schema_get_file_content,
+        schema_run_python_file,
+        schema_write_file,
+    ]
+)
 
 
 def load_api_key():
