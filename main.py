@@ -119,25 +119,29 @@ def generate_response(client, prompt):
 
 
 def main():
-    api_key = load_api_key()
-    prompt = parse_arguments()
+    try:
+        api_key = load_api_key()
+        prompt = parse_arguments()
 
-    client = genai.Client(api_key=api_key)
-    response = generate_response(client, prompt)
+        client = genai.Client(api_key=api_key)
+        response = generate_response(client, prompt)
 
-    text = getattr(response, "text", None)
-    function_calls = getattr(response, "function_calls", None)
+        text = getattr(response, "text", None)
+        function_calls = getattr(response, "function_calls", None)
 
-    if function_calls:
-        for function_call_part in function_calls:
-            print(
-                f"Calling function: {function_call_part.name}({function_call_part.args})"
-            )
-    elif text:
-        print("\n--- Response ---")
-        print(text)
-    else:
-        print("[No response text received]")
+        if function_calls:
+            for function_call_part in function_calls:
+                print(
+                    f"Calling function: {function_call_part.name}({function_call_part.args})"
+                )
+        elif text:
+            print("\n--- Response ---")
+            print(text)
+        else:
+            print("[No response text received]")
+    except Exception as e:
+        print(f"Fatal error: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
