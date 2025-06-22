@@ -4,18 +4,16 @@ from pkg.render import render
 
 
 def main():
-    calculator = Calculator()
-    if len(sys.argv) <= 1:
-        print("Calculator App")
-        print('Usage: python main.py "<expression>"')
-        print('Example: python main.py "3 + 5"')
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <expression>")
         return
 
-    expression = " ".join(sys.argv[1:])
+    expression = sys.argv[1]
+    calculator = Calculator()
+
     try:
         result = calculator.evaluate(expression)
-        to_print = render(expression, result)
-        print(to_print)
+        print(render(expression, result))
     except Exception as e:
         print(f"Error: {e}")
 

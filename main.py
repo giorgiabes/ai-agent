@@ -59,8 +59,13 @@ schema_run_python_file = types.FunctionDeclaration(
             "file_path": types.Schema(
                 type=types.Type.STRING,
                 description="The path to the Python file to execute, relative to the working directory. Must point to a '.py' file.",
-            )
+            ),
+            "args": types.Schema(
+                type=types.Type.STRING,
+                description="Optional command line arguments to pass to the Python script.",
+            ),
         },
+        required=["file_path"],
     ),
 )
 
@@ -173,7 +178,6 @@ def main():
     client = genai.Client(api_key=api_key)
 
     messages = [
-        types.Content(role="system", parts=[types.Part(text=system_prompt)]),
         types.Content(role="user", parts=[types.Part(text=prompt)]),
     ]
 
@@ -192,34 +196,44 @@ def main():
         if not candidates:
             print("Error: No candidates returned from LLM")
             sys.exit(1)
-
         for candidate in candidates:
             content = getattr(candidate, "content", None)
             if content:
                 messages.append(content)
 
-            function_calls = getattr(candidate, "function_calls", None)
-            if function_calls:
-                for function_call_part in function_calls:
-                    function_call_result = call_function(function_call_part, verbose)
-                    if verbose:
-                        response_obj = getattr(
-                            getattr(
-                                getattr(function_call_result, "parts", [])[0],
-                                "function_response",
-                                None,
-                            ),
-                            "response",
-                            None,
+                # Check for function calls in the content parts
+                has_function_calls = False
+                for part in content.parts:
+                    if hasattr(part, "function_call") and part.function_call:
+                        function_call_result = call_function(
+                            part.function_call, verbose
                         )
-                        if response_obj is None:
-                            print("Error: Invalid function response")
-                            sys.exit(1)
-                        print(f"-> {response_obj}")
-                    messages.append(function_call_result)
-                break
+                        if verbose:
+                            response_obj = getattr(
+                                getattr(
+                                    getattr(function_call_result, "parts", [])[0],
+                                    "function_response",
+                                    None,
+                                ),
+                                "response",
+                                None,
+                            )
+                            if response_obj is None:
+                                print("Error: Invalid function response")
+                                sys.exit(1)
+                            print(f"-> {response_obj}")
+                        messages.append(function_call_result)
+                        has_function_calls = True
+
+                if has_function_calls:
+                    break
         else:
-            final_text = getattr(candidates[0], "text", None)
+            final_text = (
+                getattr(candidates[0].content.parts[0], "text", None)
+                if candidates[0].content and candidates[0].content.parts
+                else None
+            )
+
             print("Final response:")
             print(final_text)
             return
