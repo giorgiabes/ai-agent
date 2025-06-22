@@ -6,13 +6,13 @@ from google.genai import types
 
 from functions.get_files_info import get_files_info
 from functions.get_file_content import get_file_content
-from functions.write_file import write_file
 from functions.run_python import run_python_file
+from functions.write_file import write_file
 
 system_prompt = """
 You are a helpful AI coding agent.
 
-When a user asks a question or makes a function call plan, you can perform the following operations:
+When a user asks a question or makes a request, make a function call plan. You can perform the following operations:
 
 - List files and directories
 - Read file contents
@@ -91,26 +91,48 @@ available_functions = types.Tool(
     ]
 )
 
-function_map = {
-    "get_files_info": get_files_info,
-    "get_file_content": get_file_content,
-    "write_file": write_file,
-    "run_python_file": run_python_file,
-}
 
-WORKING_DIRECTORY = "./calculator"
+def load_api_key():
+    load_dotenv()
+    api_key = os.environ.get("GEMINI_API_KEY")
+    if not api_key:
+        print("Error: GEMINI_API_KEY is not set in environment variables.")
+        sys.exit(1)
+    return api_key
+
+
+def parse_arguments():
+    if len(sys.argv) < 2:
+        print("Usage: python3 main.py <prompt> [--verbose]")
+        sys.exit(1)
+    args = sys.argv[1:]
+    verbose = False
+    if "--verbose" in args:
+        verbose = True
+        args.remove("--verbose")
+    prompt = " ".join(args)
+    return prompt, verbose
 
 
 def call_function(function_call_part, verbose=False):
     function_name = function_call_part.name
-    arguments = dict(function_call_part.args)
+    function_args = dict(function_call_part.args)
+    function_args["working_directory"] = "calculator"
+
+    functions_map = {
+        "get_files_info": get_files_info,
+        "get_file_content": get_file_content,
+        "run_python_file": run_python_file,
+        "write_file": write_file,
+    }
 
     if verbose:
-        print(f"Calling function: {function_name}({arguments})")
+        print(f"Calling function: {function_name}({function_args})")
     else:
         print(f" - Calling function: {function_name}")
 
-    if function_name not in function_map:
+    func = functions_map.get(function_name)
+    if not func:
         return types.Content(
             role="tool",
             parts=[
@@ -121,88 +143,88 @@ def call_function(function_call_part, verbose=False):
             ],
         )
 
-    arguments["working_directory"] = WORKING_DIRECTORY
-
     try:
-        function_result = function_map[function_name](**arguments)
+        result = func(**function_args)
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"result": result},
+                )
+            ],
+        )
     except Exception as e:
-        function_result = f"Error: Exception when executing function: {e}"
-
-    return types.Content(
-        role="tool",
-        parts=[
-            types.Part.from_function_response(
-                name=function_name,
-                response={"result": function_result},
-            )
-        ],
-    )
-
-
-def load_api_key():
-    load_dotenv()
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        print("Error: GEMINI_API_KEY is not set.")
-        sys.exit(1)
-    return api_key
-
-
-def parse_arguments():
-    if len(sys.argv) < 2:
-        print("Usage: python3 main.py <prompt> [--verbose]")
-        sys.exit(1)
-
-    verbose = False
-    args = sys.argv[1:]
-    if "--verbose" in args:
-        verbose = True
-        args.remove("--verbose")
-
-    prompt = " ".join(args)
-    return prompt, verbose
-
-
-def generate_response(client, prompt):
-    messages = [types.Content(role="user", parts=[types.Part(text=prompt)])]
-    config = types.GenerateContentConfig(
-        tools=[available_functions], system_instruction=system_prompt
-    )
-    response = client.models.generate_content(
-        model="gemini-2.0-flash-001", contents=messages, config=config
-    )
-    return response
+        return types.Content(
+            role="tool",
+            parts=[
+                types.Part.from_function_response(
+                    name=function_name,
+                    response={"error": str(e)},
+                )
+            ],
+        )
 
 
 def main():
     api_key = load_api_key()
     prompt, verbose = parse_arguments()
+
     client = genai.Client(api_key=api_key)
 
-    response = generate_response(client, prompt)
+    messages = [
+        types.Content(role="system", parts=[types.Part(text=system_prompt)]),
+        types.Content(role="user", parts=[types.Part(text=prompt)]),
+    ]
 
-    function_calls = getattr(response, "function_calls", None)
-    if function_calls:
-        for function_call_part in function_calls:
-            function_call_result = call_function(function_call_part, verbose)
+    for iteration in range(20):
+        config = types.GenerateContentConfig(
+            tools=[available_functions],
+            system_instruction=system_prompt,
+        )
+        response = client.models.generate_content(
+            model="gemini-2.0-flash-001",
+            contents=messages,
+            config=config,
+        )
 
-            parts = getattr(function_call_result, "parts", None)
-            first_part = parts[0] if parts else None
-            function_response = getattr(first_part, "function_response", None)
-            response_result = getattr(function_response, "response", None)
+        candidates = getattr(response, "candidates", [])
+        if not candidates:
+            print("Error: No candidates returned from LLM")
+            sys.exit(1)
 
-            if not response_result:
-                print("Error: Invalid function response")
-                sys.exit(1)
+        for candidate in candidates:
+            content = getattr(candidate, "content", None)
+            if content:
+                messages.append(content)
 
-            if verbose:
-                print(f"-> {response_result}")
-    else:
-        text = getattr(response, "text", None)
-        if text:
-            print(text)
+            function_calls = getattr(candidate, "function_calls", None)
+            if function_calls:
+                for function_call_part in function_calls:
+                    function_call_result = call_function(function_call_part, verbose)
+                    if verbose:
+                        response_obj = getattr(
+                            getattr(
+                                getattr(function_call_result, "parts", [])[0],
+                                "function_response",
+                                None,
+                            ),
+                            "response",
+                            None,
+                        )
+                        if response_obj is None:
+                            print("Error: Invalid function response")
+                            sys.exit(1)
+                        print(f"-> {response_obj}")
+                    messages.append(function_call_result)
+                break
         else:
-            print("[No response text received]")
+            final_text = getattr(candidates[0], "text", None)
+            print("Final response:")
+            print(final_text)
+            return
+
+    print("Error: Max iterations reached.")
 
 
 if __name__ == "__main__":
